@@ -43,6 +43,26 @@ const initialSessions: Session[] = [
   { id: 5, date: "2026-07-24", songId: 2, duration: 35, bpm: 68, progress: 41, motivation: 7, notes: "Accords stables, je peux accélérer légèrement la prochaine fois." },
 ];
 
+const WEEKLY_GOAL_MINUTES = 180;
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentWeekBounds(today = new Date()) {
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const daysSinceMonday = (monday.getDay() + 6) % 7;
+  monday.setDate(monday.getDate() - daysSinceMonday);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  return { monday: formatLocalDate(monday), sunday: formatLocalDate(sunday) };
+}
+
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
     home: <><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10M9 20v-6h6v6" /></>,
@@ -133,6 +153,12 @@ export default function Home() {
   }, [toast]);
 
   const totalMinutes = sessions.reduce((sum, session) => sum + session.duration, 0);
+  const weeklyMinutes = useMemo(() => {
+    const { monday, sunday } = getCurrentWeekBounds();
+    return sessions
+      .filter((session) => session.date >= monday && session.date <= sunday)
+      .reduce((sum, session) => sum + session.duration, 0);
+  }, [sessions]);
   const averageProgress = songs.length ? songs.reduce((sum, song) => sum + song.progress, 0) / songs.length : 0;
   const averageMotivation = sessions.length ? sessions.reduce((sum, session) => sum + session.motivation, 0) / sessions.length : 0;
   const streak = calculateStreak(sessions);
@@ -217,9 +243,9 @@ export default function Home() {
         </nav>
         <div className="sidebar-spacer" />
         <div className="weekly-goal">
-          <div className="goal-top"><span>Objectif semaine</span><strong>{Math.min(totalMinutes, 180)} / 180 min</strong></div>
-          <div className="goal-track"><span style={{ width: `${Math.min(100, (totalMinutes / 180) * 100)}%` }} /></div>
-          <p>{totalMinutes >= 180 ? "Objectif atteint. Tu peux être fière de toi." : `Plus que ${180 - totalMinutes} minutes. Tu y es presque.`}</p>
+          <div className="goal-top"><span>Objectif semaine</span><strong>{weeklyMinutes} / {WEEKLY_GOAL_MINUTES} min</strong></div>
+          <div className="goal-track"><span style={{ width: `${Math.min(100, (weeklyMinutes / WEEKLY_GOAL_MINUTES) * 100)}%` }} /></div>
+          <p>{weeklyMinutes >= WEEKLY_GOAL_MINUTES ? "Objectif atteint. Tu peux être fière de toi." : `Plus que ${WEEKLY_GOAL_MINUTES - weeklyMinutes} minutes. Tu y es presque.`}</p>
         </div>
         <div className="profile"><div className="avatar">A</div><div><strong>Anaïs</strong><span>Guitariste en progression</span></div></div>
       </aside>
