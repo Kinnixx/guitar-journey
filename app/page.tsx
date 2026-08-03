@@ -99,6 +99,12 @@ function formatDate(date: string) {
   return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(new Date(`${date}T12:00:00`));
 }
 
+function sortSessionsByMostRecent(sessions: Session[]) {
+  return [...sessions].sort((first, second) =>
+    second.date.localeCompare(first.date) || second.id - first.id
+  );
+}
+
 function calculateStreak(sessions: Session[]) {
   const unique = [...new Set(sessions.map((session) => session.date))].sort().reverse();
   if (!unique.length) return 0;
@@ -163,6 +169,7 @@ export default function Home() {
   const averageMotivation = sessions.length ? sessions.reduce((sum, session) => sum + session.motivation, 0) / sessions.length : 0;
   const streak = calculateStreak(sessions);
   const focusSong = songs.find((song) => song.id === selectedSongId) ?? songs[0];
+  const sortedSessions = useMemo(() => sortSessionsByMostRecent(sessions), [sessions]);
 
   const weekly = useMemo(() => {
     const values = [35, 0, 45, 25, 40, 0, 20];
@@ -279,11 +286,11 @@ export default function Home() {
         )}
 
         {active === "Mes sessions" && (
-          <SessionsView sessions={sessions} songs={songs} streak={streak} onAdd={() => openSession()} />
+          <SessionsView sessions={sortedSessions} songs={songs} streak={streak} onAdd={() => openSession()} />
         )}
 
         {active === "Progression" && (
-          <ProgressView songs={songs} sessions={sessions} averageMotivation={averageMotivation} averageProgress={averageProgress} />
+          <ProgressView songs={songs} sessions={sortedSessions} averageMotivation={averageMotivation} averageProgress={averageProgress} />
         )}
       </section>
 
