@@ -105,14 +105,22 @@ function sortSessionsByMostRecent(sessions: Session[]) {
   );
 }
 
-function calculateStreak(sessions: Session[]) {
-  const unique = [...new Set(sessions.map((session) => session.date))].sort().reverse();
+function getCalendarDay(date: string) {
+  return Date.parse(`${date}T00:00:00Z`) / 86400000;
+}
+
+function calculateStreak(sessions: Session[], today = new Date()) {
+  const todayDate = formatLocalDate(today);
+  const unique = [...new Set(
+    sessions.map((session) => session.date).filter((date) => date <= todayDate)
+  )].sort().reverse();
   if (!unique.length) return 0;
+
+  if (getCalendarDay(todayDate) - getCalendarDay(unique[0]) > 1) return 0;
+
   let streak = 1;
   for (let index = 1; index < unique.length; index += 1) {
-    const previous = new Date(`${unique[index - 1]}T12:00:00`);
-    const current = new Date(`${unique[index]}T12:00:00`);
-    if ((previous.getTime() - current.getTime()) / 86400000 === 1) streak += 1;
+    if (getCalendarDay(unique[index - 1]) - getCalendarDay(unique[index]) === 1) streak += 1;
     else break;
   }
   return streak;
