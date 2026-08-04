@@ -105,6 +105,24 @@ function sortSessionsByMostRecent(sessions: Session[]) {
   );
 }
 
+function getSongsWithCurrentState(songs: Song[], sessions: Session[]) {
+  const latestSessionBySong = new Map<number, Session>();
+
+  sessions.forEach((session) => {
+    const latest = latestSessionBySong.get(session.songId);
+    if (!latest || session.date > latest.date || (session.date === latest.date && session.id > latest.id)) {
+      latestSessionBySong.set(session.songId, session);
+    }
+  });
+
+  return songs.map((song) => {
+    const latest = latestSessionBySong.get(song.id);
+    return latest
+      ? { ...song, bpm: latest.bpm, progress: latest.progress, last: formatDate(latest.date) }
+      : song;
+  });
+}
+
 function getCalendarDay(date: string) {
   return Date.parse(`${date}T00:00:00Z`) / 86400000;
 }
@@ -173,10 +191,11 @@ export default function Home() {
       .filter((session) => session.date >= monday && session.date <= sunday)
       .reduce((sum, session) => sum + session.duration, 0);
   }, [sessions]);
-  const averageProgress = songs.length ? songs.reduce((sum, song) => sum + song.progress, 0) / songs.length : 0;
+  const currentSongs = useMemo(() => getSongsWithCurrentState(songs, sessions), [songs, sessions]);
+  const averageProgress = currentSongs.length ? currentSongs.reduce((sum, song) => sum + song.progress, 0) / currentSongs.length : 0;
   const averageMotivation = sessions.length ? sessions.reduce((sum, session) => sum + session.motivation, 0) / sessions.length : 0;
   const streak = calculateStreak(sessions);
-  const focusSong = songs.find((song) => song.id === selectedSongId) ?? songs[0];
+  const focusSong = currentSongs.find((song) => song.id === selectedSongId) ?? currentSongs[0];
   const sortedSessions = useMemo(() => sortSessionsByMostRecent(sessions), [sessions]);
 
   const weekly = useMemo(() => {
@@ -206,7 +225,6 @@ export default function Home() {
       notes: String(form.get("notes")),
     };
     setSessions((current) => [newSession, ...current]);
-    setSongs((current) => current.map((song) => song.id === songId ? { ...song, bpm, progress, last: "Aujourd’hui" } : song));
     setSessionModal(false);
     setToast("Session enregistrée — belle régularité !");
   };
@@ -282,7 +300,7 @@ export default function Home() {
             onOpenSession={openSession}
             onViewSongs={() => setActive("Mes morceaux")}
             sessions={sessions}
-            songs={songs}
+            songs={currentSongs}
             streak={streak}
             totalMinutes={totalMinutes}
             weekly={weekly}
@@ -290,15 +308,15 @@ export default function Home() {
         )}
 
         {active === "Mes morceaux" && (
-          <SongsView songs={songs} onAdd={() => setSongModal(true)} onPractice={openSession} onRemove={removeSong} />
+          <SongsView songs={currentSongs} onAdd={() => setSongModal(true)} onPractice={openSession} onRemove={removeSong} />
         )}
 
         {active === "Mes sessions" && (
-          <SessionsView sessions={sortedSessions} songs={songs} streak={streak} onAdd={() => openSession()} />
+          <SessionsView sessions={sortedSessions} songs={currentSongs} streak={streak} onAdd={() => openSession()} />
         )}
 
         {active === "Progression" && (
-          <ProgressView songs={songs} sessions={sortedSessions} averageMotivation={averageMotivation} averageProgress={averageProgress} />
+          <ProgressView songs={currentSongs} sessions={sortedSessions} averageMotivation={averageMotivation} averageProgress={averageProgress} />
         )}
       </section>
 
@@ -307,7 +325,7 @@ export default function Home() {
           <form className="form-grid" onSubmit={saveSession}>
             <label className="form-wide">Morceau
               <select name="songId" value={selectedSongId} onChange={(event) => setSelectedSongId(Number(event.target.value))}>
-                {songs.map((song) => <option key={song.id} value={song.id}>{song.title}</option>)}
+                {currentSongs.map((song) => <option key={song.id} value={song.id}>{song.title}</option>)}
               </select>
             </label>
             <label>Date<input required name="date" type="date" defaultValue="2026-07-30" /></label>
