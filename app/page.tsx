@@ -52,15 +52,22 @@ function formatLocalDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function getCurrentWeekBounds(today = new Date()) {
+function getCurrentWeekPractice(sessions: Session[], today = new Date()) {
   const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const daysSinceMonday = (monday.getDay() + 6) % 7;
-  monday.setDate(monday.getDate() - daysSinceMonday);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const todayDate = formatLocalDate(today);
 
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
+  const minutesByDate = new Map<string, number>();
+  sessions.forEach((session) => {
+    if (session.date > todayDate) return;
+    minutesByDate.set(session.date, (minutesByDate.get(session.date) ?? 0) + session.duration);
+  });
 
-  return { monday: formatLocalDate(monday), sunday: formatLocalDate(sunday) };
+  return ["L", "M", "M", "J", "V", "S", "D"].map((day, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return { day, value: minutesByDate.get(formatLocalDate(date)) ?? 0 };
+  });
 }
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
@@ -185,23 +192,14 @@ export default function Home() {
   }, [toast]);
 
   const totalMinutes = sessions.reduce((sum, session) => sum + session.duration, 0);
-  const weeklyMinutes = useMemo(() => {
-    const { monday, sunday } = getCurrentWeekBounds();
-    return sessions
-      .filter((session) => session.date >= monday && session.date <= sunday)
-      .reduce((sum, session) => sum + session.duration, 0);
-  }, [sessions]);
+  const weekly = useMemo(() => getCurrentWeekPractice(sessions), [sessions]);
+  const weeklyMinutes = weekly.reduce((sum, day) => sum + day.value, 0);
   const currentSongs = useMemo(() => getSongsWithCurrentState(songs, sessions), [songs, sessions]);
   const averageProgress = currentSongs.length ? currentSongs.reduce((sum, song) => sum + song.progress, 0) / currentSongs.length : 0;
   const averageMotivation = sessions.length ? sessions.reduce((sum, session) => sum + session.motivation, 0) / sessions.length : 0;
   const streak = calculateStreak(sessions);
   const focusSong = currentSongs.find((song) => song.id === selectedSongId) ?? currentSongs[0];
   const sortedSessions = useMemo(() => sortSessionsByMostRecent(sessions), [sessions]);
-
-  const weekly = useMemo(() => {
-    const values = [35, 0, 45, 25, 40, 0, 20];
-    return ["L", "M", "M", "J", "V", "S", "D"].map((day, index) => ({ day, value: values[index] }));
-  }, []);
 
   const openSession = (songId = focusSong?.id ?? 1) => {
     setSelectedSongId(songId);
@@ -304,6 +302,7 @@ export default function Home() {
             streak={streak}
             totalMinutes={totalMinutes}
             weekly={weekly}
+            weeklyMinutes={weeklyMinutes}
           />
         )}
 
@@ -364,10 +363,12 @@ export default function Home() {
   );
 }
 
-function Dashboard({ songs, sessions, focusSong, streak, totalMinutes, averageProgress, averageMotivation, weekly, onOpenSession, onViewSongs }: {
+function Dashboard({ songs, sessions, focusSong, streak, totalMinutes, averageProgress, averageMotivation, weekly, weeklyMinutes, onOpenSession, onViewSongs }: {
   songs: Song[]; sessions: Session[]; focusSong?: Song; streak: number; totalMinutes: number; averageProgress: number;
-  averageMotivation: number; weekly: { day: string; value: number }[]; onOpenSession: (songId?: number) => void; onViewSongs: () => void;
+  averageMotivation: number; weekly: { day: string; value: number }[]; weeklyMinutes: number;
+  onOpenSession: (songId?: number) => void; onViewSongs: () => void;
 }) {
+  const practiceDays = weekly.filter((day) => day.value > 0).length;
   if (!focusSong) return <EmptyState icon="music" title="Ajoute ton premier morceau" copy="Ton parcours commencera ici." />;
   return <>
     <section className="hero-grid">
@@ -400,9 +401,9 @@ function Dashboard({ songs, sessions, focusSong, streak, totalMinutes, averagePr
         <div className="song-list">{songs.slice(0, 3).map((song) => <button className="song-row" key={song.id} onClick={() => onOpenSession(song.id)}><Cover song={song} /><div className="song-meta"><strong>{song.title}</strong><span>{song.artist} · {song.last}</span></div><div className="song-progress"><span><b>{song.progress}%</b> maîtrisé</span><div><i style={{ background: song.color, width: `${song.progress}%` }} /></div></div><div className="bpm"><strong>{song.bpm}</strong><span>/ {song.goal} BPM</span></div><Icon name="chevron" size={18} /></button>)}</div>
       </article>
       <article className="panel chart-panel">
-        <div className="panel-heading"><div><p>RYTHME</p><h2>Cette semaine</h2></div><span className="trend">↗ 18%</span></div>
+        <div className="panel-heading"><div><p>RYTHME</p><h2>Cette semaine</h2></div><span className="trend">{practiceDays} {practiceDays > 1 ? "jours pratiqués" : "jour pratiqué"}</span></div>
         <WeekChart weekly={weekly} />
-        <div className="chart-note"><span><Icon name="spark" size={14} /></span><p><strong>Tu pratiques mieux, pas seulement plus.</strong>Tes sessions courtes sont plus régulières cette semaine.</p></div>
+        <div className="chart-note"><span><Icon name="spark" size={14} /></span><p><strong>{weeklyMinutes} min enregistrées cette semaine.</strong>Les durées sont additionnées pour chaque journée.</p></div>
       </article>
     </section>
     <footer className="mantra"><span>“</span><p>La vitesse vient après la propreté.<small>Ton objectif du moment</small></p></footer>
@@ -414,7 +415,9 @@ function Stat({ icon, tone, label, value, detail }: { icon: IconName; tone: stri
 }
 
 function WeekChart({ weekly }: { weekly: { day: string; value: number }[] }) {
-  return <div className="chart"><div className="axis"><span>45</span><span>30</span><span>15</span><span>0</span></div><div className="bars">{weekly.map((day, index) => <div className="bar-column" key={`${day.day}-${index}`}><div className="bar-space"><span className={index === 6 ? "current" : ""} style={{ height: `${(day.value / 45) * 100}%` }}>{day.value ? <b>{day.value}</b> : null}</span></div><small>{day.day}</small></div>)}</div></div>;
+  const maximum = Math.max(45, Math.ceil(Math.max(...weekly.map((day) => day.value)) / 15) * 15);
+  const currentDayIndex = (new Date().getDay() + 6) % 7;
+  return <div className="chart"><div className="axis"><span>{maximum}</span><span>{Math.round(maximum * 2 / 3)}</span><span>{Math.round(maximum / 3)}</span><span>0</span></div><div className="bars">{weekly.map((day, index) => <div className="bar-column" key={`${day.day}-${index}`}><div className="bar-space"><span className={index === currentDayIndex ? "current" : ""} style={{ height: `${(day.value / maximum) * 100}%` }}>{day.value ? <b>{day.value}</b> : null}</span></div><small>{day.day}</small></div>)}</div></div>;
 }
 
 function SongsView({ songs, onAdd, onPractice, onRemove }: { songs: Song[]; onAdd: () => void; onPractice: (id: number) => void; onRemove: (id: number) => void }) {
