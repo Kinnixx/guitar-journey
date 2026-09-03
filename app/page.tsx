@@ -156,6 +156,8 @@ export default function Home() {
   const [songs, setSongs] = useState<Song[]>(initialSongs);
   const [sessions, setSessions] = useState<Session[]>(initialSessions);
   const [sessionModal, setSessionModal] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
+  const [sessionFormError, setSessionFormError] = useState("");
   const [songModal, setSongModal] = useState(false);
   const [selectedSongId, setSelectedSongId] = useState(1);
   const [toast, setToast] = useState("");
@@ -200,31 +202,104 @@ export default function Home() {
   const streak = calculateStreak(sessions);
   const focusSong = currentSongs.find((song) => song.id === selectedSongId) ?? currentSongs[0];
   const sortedSessions = useMemo(() => sortSessionsByMostRecent(sessions), [sessions]);
+  const editingSession = editingSessionId === null
+    ? undefined
+    : sessions.find((session) => session.id === editingSessionId);
+  const isEditingSession = editingSessionId !== null;
+  const todayDate = formatLocalDate(new Date());
+
+  const closeSessionModal = () => {
+    setSessionModal(false);
+    setEditingSessionId(null);
+    setSessionFormError("");
+  };
 
   const openSession = (songId = focusSong?.id ?? 1) => {
     setSelectedSongId(songId);
+    setEditingSessionId(null);
+    setSessionFormError("");
+    setSessionModal(true);
+  };
+
+  const editSession = (id: number) => {
+    const session = sessions.find((item) => item.id === id);
+    if (!session) return;
+    setSelectedSongId(session.songId);
+    setEditingSessionId(id);
+    setSessionFormError("");
     setSessionModal(true);
   };
 
   const saveSession = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const songId = Number(form.get("songId"));
+    const songId = editingSession?.songId ?? Number(form.get("songId"));
+    const date = String(form.get("date"));
+    const duration = Number(form.get("duration"));
     const progress = Number(form.get("progress"));
     const bpm = Number(form.get("bpm"));
-    const newSession: Session = {
-      id: Date.now(),
-      date: String(form.get("date")),
+    const motivation = Number(form.get("motivation"));
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > todayDate) {
+      setSessionFormError("Choisis une date valide, aujourd’hui ou dans le passé.");
+      return;
+    }
+
+    if (!songs.some((song) => song.id === songId)) {
+      setSessionFormError("Le morceau associé à cette session est introuvable.");
+      return;
+    }
+
+    if (
+      !Number.isInteger(duration) || duration < 1
+      || !Number.isInteger(bpm) || bpm < 20
+      || !Number.isInteger(progress) || progress < 0 || progress > 100
+      || !Number.isInteger(motivation) || motivation < 1 || motivation > 10
+    ) {
+      setSessionFormError("Vérifie la durée, le BPM, la progression et la motivation.");
+      return;
+    }
+
+    if (isEditingSession && !editingSession) {
+      setSessionFormError("Cette session n’existe plus.");
+      return;
+    }
+
+    const savedSession: Session = {
+      id: editingSession?.id ?? Date.now(),
+      date,
       songId,
-      duration: Number(form.get("duration")),
+      duration,
       bpm,
       progress,
-      motivation: Number(form.get("motivation")),
+      motivation,
       notes: String(form.get("notes")),
     };
-    setSessions((current) => [newSession, ...current]);
-    setSessionModal(false);
+
+    if (editingSession) {
+      setSessions((current) => current.map((session) =>
+        session.id === editingSession.id ? savedSession : session
+      ));
+      closeSessionModal();
+      setToast("Session modifiée");
+      return;
+    }
+
+    setSessions((current) => [savedSession, ...current]);
+    closeSessionModal();
     setToast("Session enregistrée — belle régularité !");
+  };
+
+  const removeSession = (id: number) => {
+    const session = sessions.find((item) => item.id === id);
+    if (!session) return;
+    const song = songs.find((item) => item.id === session.songId);
+    const confirmed = window.confirm(
+      `Supprimer la session du ${formatDate(session.date)}${song ? ` — ${song.title}` : ""} ?`
+    );
+    if (!confirmed) return;
+    setSessions((current) => current.filter((item) => item.id !== id));
+    setToast("Session supprimée");
   };
 
   const saveSong = (event: FormEvent<HTMLFormElement>) => {
@@ -311,7 +386,14 @@ export default function Home() {
         )}
 
         {active === "Mes sessions" && (
-          <SessionsView sessions={sortedSessions} songs={currentSongs} streak={streak} onAdd={() => openSession()} />
+          <SessionsView
+            sessions={sortedSessions}
+            songs={currentSongs}
+            streak={streak}
+            onAdd={() => openSession()}
+            onEdit={editSession}
+            onRemove={removeSession}
+          />
         )}
 
         {active === "Progression" && (
@@ -319,28 +401,34 @@ export default function Home() {
         )}
       </section>
 
-      {sessionModal && focusSong && (
-        <Modal title="Journal de session" subtitle="Note ce que tu as vraiment travaillé aujourd’hui." onClose={() => setSessionModal(false)}>
-          <form className="form-grid" onSubmit={saveSession}>
+      {sessionModal && focusSong && (!isEditingSession || editingSession) && (
+        <Modal
+          title={isEditingSession ? "Modifier la session" : "Nouvelle session"}
+          subtitle={isEditingSession ? "Ajuste les informations enregistrées sans changer de morceau." : "Note ce que tu as vraiment travaillé aujourd’hui."}
+          onClose={closeSessionModal}
+        >
+          <form className="form-grid" key={editingSession?.id ?? "new-session"} onSubmit={saveSession}>
             <label className="form-wide">Morceau
-              <select name="songId" value={selectedSongId} onChange={(event) => setSelectedSongId(Number(event.target.value))}>
+              <select disabled={isEditingSession} name="songId" value={selectedSongId} onChange={(event) => setSelectedSongId(Number(event.target.value))}>
                 {currentSongs.map((song) => <option key={song.id} value={song.id}>{song.title}</option>)}
               </select>
+              {isEditingSession && <span className="field-help">Le morceau associé à une session ne peut pas être modifié.</span>}
             </label>
-            <label>Date<input required name="date" type="date" defaultValue="2026-07-30" /></label>
-            <label>Durée (minutes)<input required min="1" name="duration" type="number" defaultValue="25" /></label>
-            <label>Vitesse stable (BPM)<input required min="20" name="bpm" type="number" defaultValue={focusSong.bpm} /></label>
-            <label>Progression (%)<input required min="0" max="100" name="progress" type="number" defaultValue={focusSong.progress} /></label>
-            <label className="form-wide range-label">Motivation : <output id="motivation-value">8 / 10</output>
-              <input aria-describedby="motivation-value" name="motivation" type="range" min="1" max="10" defaultValue="8" onInput={(event) => {
+            <label>Date<input required max={todayDate} name="date" type="date" defaultValue={editingSession?.date ?? todayDate} /></label>
+            <label>Durée (minutes)<input required min="1" name="duration" type="number" defaultValue={editingSession?.duration ?? 25} /></label>
+            <label>Vitesse stable (BPM)<input required min="20" name="bpm" type="number" defaultValue={editingSession?.bpm ?? focusSong.bpm} /></label>
+            <label>Progression (%)<input required min="0" max="100" name="progress" type="number" defaultValue={editingSession?.progress ?? focusSong.progress} /></label>
+            <label className="form-wide range-label">Motivation : <output id="motivation-value">{editingSession?.motivation ?? 8} / 10</output>
+              <input aria-describedby="motivation-value" name="motivation" type="range" min="1" max="10" defaultValue={editingSession?.motivation ?? 8} onInput={(event) => {
                 const output = document.querySelector("#motivation-value");
                 if (output) output.textContent = `${event.currentTarget.value} / 10`;
               }} />
             </label>
             <label className="form-wide">Notes de la session
-              <textarea name="notes" placeholder="Ce qui est devenu plus fluide, ce qui bloque encore, quoi reprendre demain…" rows={4} />
+              <textarea name="notes" placeholder="Ce qui est devenu plus fluide, ce qui bloque encore, quoi reprendre demain…" rows={4} defaultValue={editingSession?.notes ?? ""} />
             </label>
-            <div className="form-actions form-wide"><button type="button" className="ghost-button" onClick={() => setSessionModal(false)}>Annuler</button><button className="primary-button" type="submit"><Icon name="check" /> Enregistrer</button></div>
+            {sessionFormError && <p className="form-error form-wide" role="alert">{sessionFormError}</p>}
+            <div className="form-actions form-wide"><button type="button" className="ghost-button" onClick={closeSessionModal}>Annuler</button><button className="primary-button" type="submit"><Icon name="check" /> {isEditingSession ? "Enregistrer les modifications" : "Enregistrer"}</button></div>
           </form>
         </Modal>
       )}
@@ -433,16 +521,23 @@ function SongsView({ songs, onAdd, onPractice, onRemove }: { songs: Song[]; onAd
   </section>;
 }
 
-function SessionsView({ sessions, songs, streak, onAdd }: { sessions: Session[]; songs: Song[]; streak: number; onAdd: () => void }) {
+function SessionsView({ sessions, songs, streak, onAdd, onEdit, onRemove }: {
+  sessions: Session[];
+  songs: Song[];
+  streak: number;
+  onAdd: () => void;
+  onEdit: (id: number) => void;
+  onRemove: (id: number) => void;
+}) {
   return <section className="view-page">
     <div className="view-intro compact-intro"><div><p className="eyebrow">JOURNAL DE PRATIQUE</p><h2>Ce que tu as vraiment joué.</h2><span>Un historique concret pour voir le chemin parcouru, même les jours où tu en doutes.</span></div></div>
     <div className="session-layout">
       <article className="panel session-history"><div className="panel-heading"><div><p>HISTORIQUE</p><h2>{sessions.length} sessions enregistrées</h2></div><button className="small-action" onClick={onAdd}><Icon name="plus" size={15} /> Ajouter</button></div>
-        <div className="timeline">{sessions.map((session) => {
+        <div className="timeline">{sessions.length ? sessions.map((session) => {
           const song = songs.find((item) => item.id === session.songId);
           if (!song) return null;
-          return <div className="timeline-row" key={session.id}><div className="timeline-date"><strong>{formatDate(session.date).split(" ")[0]}</strong><span>{formatDate(session.date).split(" ")[1]}</span></div><Cover song={song} /><div className="timeline-main"><strong>{song.title}</strong><span>{session.notes || "Session enregistrée sans note."}</span></div><div className="session-metrics"><span><Icon name="clock" size={14} />{session.duration} min</span><span><Icon name="speed" size={14} />{session.bpm} BPM</span><span><Icon name="spark" size={14} />{session.motivation}/10</span></div></div>;
-        })}</div>
+          return <div className="timeline-row" key={session.id}><div className="timeline-date"><strong>{formatDate(session.date).split(" ")[0]}</strong><span>{formatDate(session.date).split(" ")[1]}</span></div><Cover song={song} /><div className="timeline-main"><strong>{song.title}</strong><span>{session.notes || "Session enregistrée sans note."}</span></div><div className="session-metrics"><span><Icon name="clock" size={14} />{session.duration} min</span><span><Icon name="speed" size={14} />{session.bpm} BPM</span><span><Icon name="spark" size={14} />{session.motivation}/10</span></div><div className="session-row-actions"><button aria-label={`Modifier la session du ${formatDate(session.date)} pour ${song.title}`} onClick={() => onEdit(session.id)} title="Modifier"><Icon name="edit" size={15} /></button><button aria-label={`Supprimer la session du ${formatDate(session.date)} pour ${song.title}`} className="danger-action" onClick={() => onRemove(session.id)} title="Supprimer"><Icon name="trash" size={15} /></button></div></div>;
+        }) : <EmptyState icon="clock" title="Aucune session enregistrée" copy="Ajoute une session pour commencer ton historique de pratique." action={onAdd} />}</div>
       </article>
       <aside className="session-aside">
         <article className="streak-summary"><Icon name="flame" size={26} /><p>SÉRIE EN COURS</p><strong>{streak}</strong><span>jours de pratique consécutifs</span><small>Ton record personnel est de 7 jours.</small></article>
